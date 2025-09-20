@@ -1,10 +1,21 @@
 import React, { useEffect, useRef } from 'react'
-// Requires: `pnpm add xterm xterm-addon-fit` (or npm/yarn equivalent)
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 
-export default function XTermShell({ wsUrl, token, open, reconnectTick }: { wsUrl?: string; token?: string; open?: boolean; reconnectTick?: number }) {
+interface XTermShellProps {
+  wsUrl?: string
+  token?: string
+  open?: boolean
+  reconnectTick?: number
+}
+
+const XTermShell: React.FC<XTermShellProps> = ({ 
+  wsUrl, 
+  token, 
+  open = true, 
+  reconnectTick 
+}) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -107,5 +118,13 @@ export default function XTermShell({ wsUrl, token, open, reconnectTick }: { wsUr
     return () => clearTimeout(id)
   }, [open, reconnectTick])
 
-  return <div ref={containerRef} className="xterm-container" style={{ width: '100%', height: '400px' }} />
+  return (
+    <div 
+      ref={containerRef} 
+      className="xterm-container bg-gray-900 rounded-sm" 
+      style={{ width: '100%', height: '100%', minHeight: '200px' }} 
+    />
+  )
 }
+
+export default XTermShell

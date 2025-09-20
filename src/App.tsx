@@ -3,6 +3,7 @@ import { Menu, Moon, Sun, Play, Pause, ChevronLeft, ChevronRight, User, Cpu, Har
 import ShellBubble from './ShellBubble'
 import { Button } from './components/ui/button'
 import { Separator } from './components/ui/separator'
+import { cn } from './lib/utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './components/ui/dropdown-menu'
-import { cn } from './lib/utils'
 
 function formatBytes(n: number) {
   if (!n && n !== 0) return '-'
@@ -44,6 +44,11 @@ type Metrics = {
   load_avg?: { '1'?: number; '5'?: number; '15'?: number }
   temps?: Record<string, Array<number>>
   processes?: Array<any>
+  uptime?: {
+    seconds: number
+    formatted: string
+    boot_time: number
+  }
 }
 
 function Bar({ label, percent }: { label: string; percent?: number }) {
@@ -393,7 +398,7 @@ export default function App() {
             <div className="text-sm space-y-1">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Uptime</span>
-                <span className="font-medium">24h 36m</span>
+                <span className="font-medium">{metrics.uptime?.formatted || 'Loading...'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Load</span>
@@ -517,8 +522,12 @@ export default function App() {
       <Header />
       <div className="flex">
         <Sidebar />
-        <main className={`flex-1 p-6 transition-all duration-300 ${sidebarCollapsed ? 'md:mx-auto' : 'md:ml-64'}`}>
-          <div className="max-w-6xl mx-auto">
+        <main className={cn(
+          "flex-1 p-6 transition-all duration-300 ease-in-out"
+        )}>
+          <div className={cn(
+            "max-w-6xl mx-auto transition-all duration-300 ease-in-out"
+          )}>
             <ShellBubble token={'a-strong-secret'} />
             <div id="overview" className="space-y-4">
               <section id="cpu" className="card border dark:border-gray-800">
@@ -714,13 +723,13 @@ export default function App() {
                 <div className="fixed inset-0 z-40">
                   <div className={`fixed inset-0 bg-black modal-overlay ${modalVisible ? 'show' : ''}`} onClick={() => setSelectedProc(null)} />
                   <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
-                    <div className={`bg-white dark:bg-gray-800 rounded shadow p-4 z-50 w-11/12 max-w-2xl pointer-events-auto modal-panel ${modalVisible ? 'show' : ''}`} style={{ maxHeight: '80vh', overflow: 'auto', color: 'var(--text)' }}>
+                    <div className={`border dark:border-gray-800 bg-white dark:bg-gray-950 rounded shadow p-4 z-50 w-11/12 max-w-2xl pointer-events-auto modal-panel ${modalVisible ? 'show' : ''}`} style={{ maxHeight: '80vh', overflow: 'auto', color: 'var(--text)' }}>
                       <div className="flex items-start justify-between">
                         <h3 className="text-lg font-semibold">Process {selectedProc.pid} - {selectedProc.name}</h3>
                         <button className="text-sm text-gray-500" onClick={() => setSelectedProc(null)}>Close</button>
                       </div>
                       <div className="mt-3 text-sm">
-                        <pre className="whitespace-pre-wrap break-words text-xs bg-gray-50 p-2 rounded">{JSON.stringify(selectedProc, null, 2)}</pre>
+                        <pre className="whitespace-pre-wrap break-words text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded">{JSON.stringify(selectedProc, null, 2)}</pre>
                       </div>
                     </div>
                   </div>

@@ -82,15 +82,56 @@ html, body, #root { height: 100%; }
 
 .progress-bar { 
   height: 1rem; 
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   overflow: hidden;
   background-color: hsl(var(--secondary));
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid hsl(var(--border));
 }
 
 .progress-bar > .fill { 
   height: 100%; 
-  border-radius: 0.375rem;
-  transition: all 300ms ease-linear;
+  border-radius: 0.5rem;
+  transition: width 800ms cubic-bezier(0.4, 0, 0.2, 1), 
+              box-shadow 300ms ease-out,
+              transform 300ms ease-out;
+  box-shadow: 
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar > .fill::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.progress-bar > .fill:hover {
+  transform: scaleY(1.05);
+  box-shadow: 
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .table-zebra tbody tr:nth-child(odd) { 
@@ -111,6 +152,29 @@ html, body, #root { height: 100%; }
   font-weight: 600;
 }
 
+/* Custom scrollbar styles for sidebar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.3);
+}
+
 html { scroll-behavior: smooth }
 
 /* Modal animations */
@@ -129,6 +193,27 @@ html { scroll-behavior: smooth }
 .modal-panel.show {
 	transform: scale(1);
 	opacity: 1;
+}
+
+/* Swoosh opening animation (iOS-like) */
+.swoosh-opening {
+  /* initial state will be set inline via transform from JS if needed */
+  animation: swooshUp 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes swooshUp {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98) translateZ(0);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.02) translateZ(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) translateZ(0);
+  }
 }
 
 /* Sidebar transitions and animations */

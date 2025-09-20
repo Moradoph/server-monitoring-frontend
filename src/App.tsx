@@ -75,7 +75,7 @@ export default function App() {
   })
   const [network, setNetwork] = useState({ recvRate: 0, sentRate: 0, totalRecv: 0, totalSent: 0 })
   const [netHistory, setNetHistory] = useState<Array<{ r: number; s: number }>>([])
-  const [netHover, setNetHover] = useState<null | { x: number; y: number; idx: number; r: number; s: number }>(null)
+  const [netHover, setNetHover] = useState<null | { x: number; y: number; idx: number; r: number; s: number; timestamp: number }>(null)
   const prevNetRef = React.useRef<{ recv?: number; sent?: number; ts?: number }>({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
@@ -124,7 +124,15 @@ export default function App() {
   useEffect(() => {
     const url = ((import.meta as any).env?.VITE_WS_URL || '') || `ws://${location.hostname}:8000/ws`
     const ws = new WebSocket(url)
+    let isConnected = false
+    
+    ws.onopen = () => {
+      isConnected = true
+    }
+    
     ws.onmessage = (ev) => {
+      if (!isConnected) return // Ignore messages if not properly connected
+      
       try {
         const data = JSON.parse(ev.data)
         if (!pausedRef.current) {
@@ -137,18 +145,18 @@ export default function App() {
           const prev = prevNetRef.current
           if (prev && typeof prev.recv === 'number' && typeof prev.sent === 'number' && prev.ts) {
             const dt = Math.max(0.001, ts - prev.ts)
-            const recvRate = (recv - prev.recv) / dt
-            const sentRate = (sent - prev.sent) / dt
+            const recvRate = Math.max(0, (recv - prev.recv) / dt)
+            const sentRate = Math.max(0, (sent - prev.sent) / dt)
             setNetwork({ recvRate, sentRate, totalRecv: recv, totalSent: sent })
             setNetHistory(h => {
-              const next = h.slice(-60)
+              const next = [...h.slice(-59)] // Keep only last 59 entries
               next.push({ r: recvRate, s: sentRate })
               return next
             })
           } else {
             setNetwork({ recvRate: 0, sentRate: 0, totalRecv: recv, totalSent: sent })
             setNetHistory(h => {
-              const next = h.slice(-60)
+              const next = [...h.slice(-59)]
               next.push({ r: 0, s: 0 })
               return next
             })
@@ -156,10 +164,24 @@ export default function App() {
           prevNetRef.current = { recv, sent, ts }
         }
       } catch (e) {
-        // ignore
+        // ignore parsing errors
       }
     }
-    return () => ws.close()
+    
+    ws.onclose = () => {
+      isConnected = false
+    }
+    
+    ws.onerror = () => {
+      isConnected = false
+    }
+    
+    return () => {
+      isConnected = false
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close()
+      }
+    }
   }, [])
 
   const cpuPercent = metrics.cpu_percent || 0
@@ -414,9 +436,14 @@ export default function App() {
   function WaveformDual({ data, topoColor = 'rgba(34,197,94,0.95)', bottomColor = 'rgba(220,38,38,0.95)' }: { data: Array<{ r: number; s: number }>; topoColor?: string; bottomColor?: string }) {
     const ref = React.useRef<HTMLCanvasElement | null>(null)
     const wrapRef = React.useRef<HTMLDivElement | null>(null)
+    const animationRef = React.useRef<number | null>(null)
+    const previousDataRef = React.useRef<Array<{ r: number; s: number }>>([])
+    const [isAnimating, setIsAnimating] = React.useState(false)
+
     useEffect(() => {
       const cvs = ref.current
       if (!cvs) return
+
       const ctx = cvs.getContext('2d')!
       const DPR = window.devicePixelRatio || 1
       const w = cvs.clientWidth
@@ -425,38 +452,128 @@ export default function App() {
       cvs.height = Math.floor(h * DPR)
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
 
-      ctx.clearRect(0, 0, w, h)
-      if (!data || data.length === 0) return
+      // Animation function
+      const animate = (progress: number = 1) => {
+        ctx.clearRect(0, 0, w, h)
+        
+        // Add subtle grid background
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'
+        ctx.lineWidth = 1
+        for (let i = 1; i < 4; i++) {
+          const y = (h / 4) * i
+          ctx.beginPath()
+          ctx.moveTo(0, y)
+          ctx.lineTo(w, y)
+          ctx.stroke()
+        }
+        
+        if (!data || data.length === 0) return
 
-      // convert samples to Mbps for consistent units
-      const conv = data.map(d => ({ r: (d.r * 8) / 1e6, s: (d.s * 8) / 1e6 }))
-      // compute a stable max across buffer (avoid tiny values)
-      let maxVal = 1
-      for (const d of conv) if (d) maxVal = Math.max(maxVal, d.r, d.s)
+        // convert samples to Mbps for consistent units
+        const conv = data.map(d => ({ r: (d.r * 8) / 1e6, s: (d.s * 8) / 1e6 }))
+        const prevConv = previousDataRef.current.length > 0 ? previousDataRef.current.map(d => ({ r: (d.r * 8) / 1e6, s: (d.s * 8) / 1e6 })) : conv
+        
+        // compute a stable max across buffer (avoid tiny values)
+        let maxVal = 1
+        for (const d of conv) if (d) maxVal = Math.max(maxVal, d.r, d.s)
 
-      const len = conv.length
-      const barW = Math.max(1, w / Math.max(1, len))
-      const centerY = h / 2
+        const len = conv.length
+        const barW = Math.max(1, w / Math.max(1, len))
+        const centerY = h / 2
 
-      for (let i = 0; i < len; i++) {
-        const x = i * barW
-        const sample = conv[i] || { r: 0, s: 0 }
-        const rNorm = Math.min(1, sample.r / maxVal)
-        const sNorm = Math.min(1, sample.s / maxVal)
-        const rH = rNorm * (h / 2)
-        const sH = sNorm * (h / 2)
+        for (let i = 0; i < len; i++) {
+          const x = i * barW
+          const sample = conv[i] || { r: 0, s: 0 }
+          const prevSample = prevConv[i] || sample
+          
+          // Interpolate between previous and current values for smooth animation
+          const currentR = prevSample.r + (sample.r - prevSample.r) * progress
+          const currentS = prevSample.s + (sample.s - prevSample.s) * progress
+          
+          const rNorm = Math.min(1, currentR / maxVal)
+          const sNorm = Math.min(1, currentS / maxVal)
+          const rH = rNorm * (h / 2)
+          const sH = sNorm * (h / 2)
 
-        // top bar (recv) - thinner bars for denser look
-        ctx.fillStyle = topoColor
-        ctx.fillRect(x + barW * 0.1, centerY - rH, Math.max(1, barW * 0.6), rH)
+          // Add glow effect for active bars
+          if (rH > 2 || sH > 2) {
+            ctx.shadowBlur = 8
+            ctx.shadowColor = topoColor
+          } else {
+            ctx.shadowBlur = 0
+          }
 
-        // bottom bar (sent)
-        ctx.fillStyle = bottomColor
-        ctx.fillRect(x + barW * 0.1, centerY, Math.max(1, barW * 0.6), sH)
+          // top bar (recv) with gradient
+          const topGradient = ctx.createLinearGradient(0, centerY - rH, 0, centerY)
+          topGradient.addColorStop(0, topoColor)
+          topGradient.addColorStop(1, topoColor.replace('0.95', '0.7'))
+          ctx.fillStyle = topGradient
+          ctx.fillRect(x + barW * 0.1, centerY - rH, Math.max(1, barW * 0.6), rH)
+
+          // Reset shadow for bottom bar
+          if (sH > 2) {
+            ctx.shadowColor = bottomColor
+          } else {
+            ctx.shadowBlur = 0
+          }
+
+          // bottom bar (sent) with gradient
+          const bottomGradient = ctx.createLinearGradient(0, centerY, 0, centerY + sH)
+          bottomGradient.addColorStop(0, bottomColor)
+          bottomGradient.addColorStop(1, bottomColor.replace('0.95', '0.7'))
+          ctx.fillStyle = bottomGradient
+          ctx.fillRect(x + barW * 0.1, centerY, Math.max(1, barW * 0.6), sH)
+        }
+        
+        // Reset shadow
+        ctx.shadowBlur = 0
+
+        // Add center line
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(0, centerY)
+        ctx.lineTo(w, centerY)
+        ctx.stroke()
+      }
+
+      // Start animation if data has changed
+      if (JSON.stringify(data) !== JSON.stringify(previousDataRef.current)) {
+        setIsAnimating(true)
+        let startTime: number | null = null
+        const duration = 300 // ms
+
+        const animateFrame = (timestamp: number) => {
+          if (!startTime) startTime = timestamp
+          const elapsed = timestamp - startTime
+          const progress = Math.min(elapsed / duration, 1)
+          
+          animate(progress)
+          
+          if (progress < 1) {
+            animationRef.current = requestAnimationFrame(animateFrame)
+          } else {
+            setIsAnimating(false)
+            previousDataRef.current = [...data]
+          }
+        }
+
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current)
+        }
+        animationRef.current = requestAnimationFrame(animateFrame)
+      } else {
+        animate(1)
+      }
+
+      return () => {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current)
+        }
       }
     }, [data, topoColor, bottomColor])
 
-    // mouse handlers for tooltip: listen on canvas and wrapper, plus a window fallback
+    // Enhanced mouse handlers for better tooltip
     useEffect(() => {
       const cvs = ref.current
       const wrap = wrapRef.current
@@ -466,18 +583,35 @@ export default function App() {
         const rect = cvs.getBoundingClientRect()
         const x = e.clientX - rect.left
         const y = e.clientY - rect.top
+        
         // if outside bounds, clear hover
         if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
           setNetHover(null)
           return
         }
+        
         const len = data.length || 1
         const idx = Math.floor((x / rect.width) * len)
         const clamped = Math.max(0, Math.min(len - 1, idx))
         const sample = data[clamped] || { r: 0, s: 0 }
-        // position tooltip relative to wrapper (not fixed) to avoid blocking and rooting issues
+        
+        // Enhanced tooltip positioning - avoid edges
         const wrapRect = wrap.getBoundingClientRect()
-        setNetHover({ x: rect.left - wrapRect.left + x, y: rect.top - wrapRect.top + y, idx: clamped, r: (sample.r * 8) / 1e6, s: (sample.s * 8) / 1e6 })
+        let tooltipX = rect.left - wrapRect.left + x + 12
+        let tooltipY = rect.top - wrapRect.top + y - 60
+        
+        // Adjust if tooltip would go off screen
+        if (tooltipX > wrapRect.width - 200) tooltipX = x - 180
+        if (tooltipY < 0) tooltipY = y + 12
+        
+        setNetHover({ 
+          x: tooltipX, 
+          y: tooltipY, 
+          idx: clamped, 
+          r: (sample.r * 8) / 1e6, 
+          s: (sample.s * 8) / 1e6,
+          timestamp: Date.now() - (len - 1 - clamped) * 1000 // Approximate timestamp
+        })
       }
 
       const onLeave = () => setNetHover(null)
@@ -505,12 +639,53 @@ export default function App() {
 
     return (
       <div className="relative" ref={wrapRef}>
-        <canvas ref={ref} className="w-full h-20" />
+        <canvas 
+          ref={ref} 
+          className={cn(
+            "w-full h-20 rounded-md transition-all duration-200",
+            isAnimating && "opacity-90"
+          )}
+        />
         {netHover && (
-          <div style={{ position: 'absolute', left: netHover.x + 8, top: netHover.y + 8, zIndex: 60 }} className="pointer-events-none bg-white dark:bg-gray-800 border dark:border-gray-700 rounded p-2 text-xs shadow text-gray-900 dark:text-gray-100">
-            <div className="font-medium">Packet {netHover.idx}</div>
-            <div>Down: {netHover.r.toFixed(2)} Mbps</div>
-            <div>Up: {netHover.s.toFixed(2)} Mbps</div>
+          <div 
+            style={{ 
+              position: 'absolute', 
+              left: netHover.x, 
+              top: netHover.y, 
+              zIndex: 60,
+              transform: 'scale(1)',
+              opacity: 1,
+            }} 
+            className={cn(
+              "pointer-events-none backdrop-blur-md rounded-lg shadow-xl border transition-all duration-200 ease-out animate-in fade-in-0 zoom-in-95",
+              "bg-background/95 border-border/40 p-3 text-sm"
+            )}
+          >
+            <div className="flex items-center gap-2 font-medium text-foreground mb-1">
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+              Sample #{netHover.idx + 1}
+            </div>
+            <div className="space-y-1 text-xs">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'rgba(99, 88, 248, 0.95)' }}></div>
+                  <span className="text-muted-foreground">Download:</span>
+                </div>
+                <span className="font-mono font-medium text-blue-400">{netHover.r.toFixed(2)} Mbps</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'rgba(252, 76, 199, 0.95)' }}></div>
+                  <span className="text-muted-foreground">Upload:</span>
+                </div>
+                <span className="font-mono font-medium text-pink-400">{netHover.s.toFixed(2)} Mbps</span>
+              </div>
+              <div className="border-t border-border/40 pt-1 mt-2">
+                <span className="text-muted-foreground text-xs">
+                  {new Date(netHover.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>

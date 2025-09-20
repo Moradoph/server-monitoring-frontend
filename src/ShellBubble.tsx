@@ -18,24 +18,29 @@ interface Position {
 const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [showShell, setShowShell] = useState(false)
+  const [isOpening, setIsOpening] = useState(false)
   const [position, setPosition] = useState<Position>({ x: window.innerWidth - 80, y: window.innerHeight - 80 }) // Start bottom-right
   const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState<Position>({ x: 0, y: 0 })
-  const [initialPosition, setInitialPosition] = useState<Position>({ x: 0, y: 0 })
+  const [hasDragged, setHasDragged] = useState(false)
   
   const bubbleRef = useRef<HTMLDivElement>(null)
+  const dragThreshold = 5 // pixels to start drag
 
   const toggleShell = useCallback((e: React.MouseEvent) => {
-    if (isDragging) return // Don't toggle if we just finished dragging
+    if (hasDragged) return // Don't toggle if we just finished dragging
     
     if (!isOpen) {
+      // Start opening with swoosh animation
       setIsOpen(true)
       setShowShell(true)
+      setIsOpening(true)
+      // Clear opening after animation time
+      setTimeout(() => setIsOpening(false), 360)
     } else {
       setIsOpen(false)
       setShowShell(false)
     }
-  }, [isDragging, isOpen])
+  }, [hasDragged, isOpen])
 
   const handleReconnect = useCallback(() => {
     setShowShell(false)
@@ -64,54 +69,60 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
     e.preventDefault()
     e.stopPropagation()
     
-    setIsDragging(true)
-    setDragStart({ x: e.clientX, y: e.clientY })
-    setInitialPosition(position)
+    const startX = e.clientX
+    const startY = e.clientY
+    let hasDraggedLocal = false
+    let isDraggingLocal = false
     
-    // Prevent the button click from firing
-    document.body.style.userSelect = 'none'
-  }, [position])
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return
+    const rect = bubbleRef.current?.getBoundingClientRect()
+    if (!rect) return
     
-    e.preventDefault()
-    
-    const deltaX = e.clientX - dragStart.x
-    const deltaY = e.clientY - dragStart.y
-    
-    const newPosition = {
-      x: initialPosition.x + deltaX,
-      y: initialPosition.y + deltaY
-    }
-    
-    setPosition(constrainPosition(newPosition))
-  }, [isDragging, dragStart, initialPosition, constrainPosition])
-
-  const handleMouseUp = useCallback((e: MouseEvent) => {
-    if (!isDragging) return
-    
-    setIsDragging(false)
-    document.body.style.userSelect = ''
-    
-    // Small delay to prevent click event from firing after drag
-    setTimeout(() => {
-      // This allows the click handler to work normally again
-    }, 100)
-  }, [isDragging])
-
-  // Setup global mouse events
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove, { passive: false })
-      document.addEventListener('mouseup', handleMouseUp, { passive: false })
+    const handleTempMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - startX
+      const deltaY = e.clientY - startY
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
       
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
+      // Start dragging only after threshold
+      if (!isDraggingLocal && distance > dragThreshold) {
+        isDraggingLocal = true
+        hasDraggedLocal = true
+        setIsDragging(true)
+        setHasDragged(true)
+        document.body.style.userSelect = 'none'
+      }
+      
+      if (isDraggingLocal) {
+        e.preventDefault()
+        
+        const newPosition = {
+          x: position.x + deltaX,
+          y: position.y + deltaY
+        }
+        
+        setPosition(constrainPosition(newPosition))
       }
     }
-  }, [isDragging, handleMouseMove, handleMouseUp])
+    
+    const handleTempMouseUp = () => {
+      setIsDragging(false)
+      document.body.style.userSelect = ''
+      
+      // Reset drag flag after a delay to prevent accidental clicks
+      if (hasDraggedLocal) {
+        setTimeout(() => {
+          setHasDragged(false)
+        }, 150)
+      }
+      
+      // Remove temporary listeners immediately
+      document.removeEventListener('mousemove', handleTempMouseMove)
+      document.removeEventListener('mouseup', handleTempMouseUp)
+    }
+    
+    // Add temporary listeners
+    document.addEventListener('mousemove', handleTempMouseMove, { passive: false })
+    document.addEventListener('mouseup', handleTempMouseUp, { passive: false })
+  }, [position, constrainPosition, dragThreshold])
 
   // Handle window resize
   useEffect(() => {
@@ -125,8 +136,8 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
 
   // Calculate popup position
   const getPopupPosition = useCallback(() => {
-    const popupWidth = 600
-    const popupHeight = 400
+    const popupWidth = 700  // Increased from 600px
+    const popupHeight = 450 // Increased from 400px
     const bubbleSize = 56
     const gap = 16
     
@@ -150,6 +161,28 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
 
   const popupPosition = getPopupPosition()
 
+  // Compute opening transform so the popup appears to originate from the bubble
+  const getOpeningTransform = useCallback(() => {
+    try {
+      const bubbleRect = bubbleRef.current?.getBoundingClientRect()
+      if (!bubbleRect) return 'translateY(14px) scale(0.98)'
+
+      const popupX = popupPosition.x
+      const popupY = popupPosition.y
+
+      // center points
+      const bubbleCenterX = bubbleRect.left + bubbleRect.width / 2
+      const bubbleCenterY = bubbleRect.top + bubbleRect.height / 2
+
+      const offsetX = bubbleCenterX - (popupX + 350) // popup half-width approx
+      const offsetY = bubbleCenterY - (popupY + 24) // small vertical offset
+
+      return `translate(${offsetX}px, ${offsetY}px) scale(0.9)`
+    } catch (e) {
+      return 'translateY(14px) scale(0.98)'
+    }
+  }, [popupPosition])
+
   return (
     <>
       {/* Floating Shell Button */}
@@ -162,8 +195,9 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
         style={{
           left: `${position.x}px`,
           top: `${position.y}px`,
-          transition: isDragging ? 'none' : 'all 0.2s ease-out',
-          transform: isDragging ? 'scale(1.05)' : 'scale(1)',
+          transition: isDragging ? 'none' : 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: isDragging ? 'scale(1.02) translateZ(0)' : 'scale(1) translateZ(0)',
+          willChange: isDragging ? 'transform, left, top' : 'auto',
         }}
         onMouseDown={handleMouseDown}
       >
@@ -185,17 +219,23 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
       {/* Shell Popup */}
       {isOpen && (
         <div 
-          className="fixed z-40"
+          className={cn('fixed z-40', isOpening && 'swoosh-opening')}
           style={{
+            // Use transform-only movement when dragging to avoid layout reflow
             left: `${popupPosition.x}px`,
             top: `${popupPosition.y}px`,
-            transition: 'all 0.3s ease-out',
+            transition: isDragging ? 'none' : 'opacity 220ms ease-out, transform 220ms ease-out',
+            willChange: isDragging ? 'transform' : 'auto',
+            transform: isOpening ? getOpeningTransform() : undefined
           }}
         >
           <Card className={cn(
-            "w-[600px] h-[400px] shadow-2xl border border-border/40",
-            "backdrop-blur-md bg-background/95 transition-all duration-300",
-            "animate-in slide-in-from-bottom-2 fade-in-0"
+            "w-[700px] h-[450px] shadow-2xl border border-border/40",
+            // Avoid triggering reflow on child layout; only animate opacity/transform
+            "backdrop-blur-md bg-background/95 transition-opacity duration-300",
+            "animate-in slide-in-from-bottom-2 fade-in-0",
+            // hint to browser to optimize rendering of this element
+            isDragging ? 'will-change-transform' : ''
           )}>
             <div className="flex items-center justify-between p-3 border-b border-border/40">
               <div className="flex items-center gap-2">
@@ -208,7 +248,7 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
                 )}
               </div>
               
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 ">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -234,7 +274,7 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
             </div>
             
             <CardContent className="p-0 h-[calc(100%-49px)]">
-              <div className="h-full w-full">
+              <div className="h-full w-full ">
                 {showShell && (
                   <XTermShell 
                     token={token}

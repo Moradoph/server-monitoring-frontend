@@ -1,372 +1,293 @@
-import React, { useEffect, useRef, useCallback } from 'react'
-import { Terminal } from 'xterm'
-import { FitAddon } from 'xterm-addon-fit'
-import 'xterm/css/xterm.css'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { Button } from './components/ui/button'
+import { Card, CardContent } from './components/ui/card'
+import { Separator } from './components/ui/separator'
+import { Terminal, X, RotateCcw, Move } from 'lucide-react'
+import { cn } from './lib/utils'
+import XTermShell from './XTermShell'
 
-interface XTermShellProps {
-  wsUrl?: string
-  token?: string
-  open?: boolean
-  reconnectTick?: number
+interface ShellBubbleProps {
+  token: string
 }
 
-const XTermShell: React.FC<XTermShellProps> = ({ 
-  wsUrl, 
-  token, 
-  open = true, 
-  reconnectTick 
-}) => {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const termRef = useRef<Terminal | null>(null)
-  const fitRef = useRef<FitAddon | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
-  const hadOpenRef = useRef(false)
-  const resizeObsRef = useRef<ResizeObserver | null>(null)
-  const timeoutsRef = useRef<Set<number>>(new Set())
-  const rafRef = useRef<number | null>(null)
+interface Position {
+  x: number
+  y: number
+}
+
+const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
+  const [isOpen, setIsOpen] = useState(false)
+  const [showShell, setShowShell] = useState(false)
+  const [isOpening, setIsOpening] = useState(false)
+  const [position, setPosition] = useState<Position>({ x: window.innerWidth - 80, y: window.innerHeight - 80 }) // Start bottom-right
+  const [isDragging, setIsDragging] = useState(false)
+  const [hasDragged, setHasDragged] = useState(false)
   
-  // Helper to clear all timeouts
-  const clearAllTimeouts = useCallback(() => {
-    timeoutsRef.current.forEach(timeout => clearTimeout(timeout))
-    timeoutsRef.current.clear()
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  const dragThreshold = 5 // pixels to start drag
+
+  const toggleShell = useCallback((e: React.MouseEvent) => {
+    if (hasDragged) return // Don't toggle if we just finished dragging
+    
+    if (!isOpen) {
+      // Start opening with swoosh animation
+      setIsOpen(true)
+      setShowShell(true)
+      setIsOpening(true)
+      // Clear opening after animation time
+      setTimeout(() => setIsOpening(false), 360)
+    } else {
+      setIsOpen(false)
+      setShowShell(false)
     }
-  }, [])
-  
-  // Helper to add timeout with cleanup tracking
-  const addTimeout = useCallback((callback: () => void, delay: number) => {
-    const timeout = setTimeout(() => {
-      timeoutsRef.current.delete(timeout)
-      callback()
-    }, delay) as number
-    timeoutsRef.current.add(timeout)
-    return timeout
+  }, [hasDragged, isOpen])
+
+  const handleReconnect = useCallback(() => {
+    setShowShell(false)
+    setTimeout(() => setShowShell(true), 100)
   }, [])
 
-  // Improved scroll to bottom function
-  const scrollToBottom = useCallback(() => {
-    try {
-      if (termRef.current) {
-        const term = termRef.current as any
-        // Use multiple methods to ensure scrolling works
-        if (typeof term.scrollToBottom === 'function') {
-          term.scrollToBottom()
-        }
-        if (term.buffer && term.buffer.active) {
-          const buffer = term.buffer.active
-          if (buffer.baseY !== undefined && buffer.cursorY !== undefined) {
-            const targetLine = buffer.baseY + buffer.cursorY
-            if (typeof term.scrollToLine === 'function') {
-              term.scrollToLine(targetLine)
-            }
-          }
-        }
-        // Force scroll to end using viewport
-        if (term._core && term._core.viewport) {
-          term._core.viewport.scrollToBottom()
-        }
-      }
-    } catch (e) {
-      console.warn('Scroll to bottom failed:', e)
+  const handleClose = useCallback(() => {
+    setIsOpen(false)
+    setShowShell(false)
+  }, [])
+
+  const constrainPosition = useCallback((pos: Position): Position => {
+    const bubbleSize = 56 // h-14 w-14 = 56px
+    const margin = 16
+    
+    const maxX = window.innerWidth - bubbleSize - margin
+    const maxY = window.innerHeight - bubbleSize - margin
+    
+    return {
+      x: Math.max(margin, Math.min(pos.x, maxX)),
+      y: Math.max(margin, Math.min(pos.y, maxY))
     }
   }, [])
 
-  useEffect(() => {
-    // Initialize terminal only when container is available
-    const init = () => {
-      if (!containerRef.current) return false
-      try {
-        const term = new Terminal({ 
-          cursorBlink: true, 
-          convertEol: true,
-          // Let the fit addon determine optimal size
-          scrollback: 5000,
-          fontFamily: 'Monaco, Menlo, "DejaVu Sans Mono", "Lucida Console", monospace',
-          fontSize: 14,
-          lineHeight: 1.2,
-          letterSpacing: 0,
-          allowTransparency: true,
-          disableStdin: false,
-          // Enable proper text wrapping
-          windowsMode: false,
-          macOptionIsMeta: true,
-          rightClickSelectsWord: false,
-          theme: {
-            background: 'rgba(0, 0, 0, 0)',
-            foreground: '#2ee400ff',
-            cursor: '#2ee400ff',
-            selectionBackground: 'rgba(112, 115, 255, 0.3)',
-            black: '#000000ff',
-            brightBlack: '#808080',
-            red: '#ff6c6b',
-            brightRed: '#ff6c6b',
-            green: '#98be65',
-            brightGreen: '#98be65',
-            yellow: '#ecbe7b',
-            brightYellow: '#ecbe7b',
-            blue: '#51afef',
-            brightBlue: '#51afef',
-            magenta: '#c678dd',
-            brightMagenta: '#c678dd',
-            cyan: '#46d9ff',
-            brightCyan: '#46d9ff',
-            white: '#bbc2cf',
-            brightWhite: '#ffffff'
-          }
-        })
-        
-        const fit = new FitAddon()
-        term.loadAddon(fit)
-        term.open(containerRef.current)
-        
-        // Improved fitting with proper timing
-        const doFit = () => {
-          try {
-            if (containerRef.current && fitRef.current) {
-              fitRef.current.fit()
-              // Send resize event to the connected shell
-              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                const { cols, rows } = term
-                // Send terminal resize signal (this depends on your backend implementation)
-                const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
-                wsRef.current.send(resizeMsg)
-              }
-            }
-          } catch (e) {
-            console.warn('Fit failed:', e)
-          }
-        }
-        
-        // Initial fit with proper timing
-        rafRef.current = requestAnimationFrame(() => {
-          doFit()
-          // Secondary fit to ensure proper sizing
-          addTimeout(doFit, 100)
-        })
-        
-        termRef.current = term
-        fitRef.current = fit
-        return true
-      } catch (err) {
-        console.error('Failed to initialize xterm:', err)
-        return false
-      }
-    }
-
-    if (!init()) {
-      // Try once more on next animation frame
-      const id = requestAnimationFrame(() => init())
-      rafRef.current = id
-    }
-
-    // Improved resize handling
-    const setupResize = () => {
-      try {
-        if (containerRef.current && fitRef.current) {
-          if (resizeObsRef.current) resizeObsRef.current.disconnect()
-          
-          let resizeTimeout: number | null = null
-          const ro = new ResizeObserver(() => {
-            // Debounce resize events
-            if (resizeTimeout) clearTimeout(resizeTimeout)
-            resizeTimeout = setTimeout(() => {
-              try {
-                if (fitRef.current && termRef.current) {
-                  fitRef.current.fit()
-                  // Notify backend of resize
-                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                    const { cols, rows } = termRef.current
-                    const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
-                    wsRef.current.send(resizeMsg)
-                  }
-                }
-              } catch (e) {
-                console.warn('Resize fit failed:', e)
-              }
-            }, 50) as number
-          })
-          ro.observe(containerRef.current)
-          resizeObsRef.current = ro
-        }
-      } catch (e) {
-        console.warn('Setup resize failed:', e)
-      }
-    }
-    setupResize()
-
-    const url = wsUrl || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:8000/ws/shell`
-    const urlWithToken = token ? `${url}?token=${encodeURIComponent(token)}` : url
-    const ws = new WebSocket(urlWithToken)
-    ws.binaryType = 'arraybuffer'
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      hadOpenRef.current = true
-      try { 
-        termRef.current?.writeln('\x1b[32mConnected to host shell\x1b[0m')
-        // Send initial terminal size
-        if (termRef.current) {
-          const { cols, rows } = termRef.current
-          const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
-          ws.send(resizeMsg)
-        }
-      } catch (e) { 
-        console.warn('WebSocket open handling failed:', e)
-      }
-    }
-
-    ws.onmessage = (ev) => {
-      // Receive text output and write to terminal
-      let data: string
-      if (typeof ev.data === 'string') {
-        data = ev.data
-      } else if (ev.data instanceof ArrayBuffer) {
-        data = new TextDecoder().decode(ev.data)
-      } else {
-        console.warn('Unexpected message type:', typeof ev.data)
-        return
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    const startX = e.clientX
+    const startY = e.clientY
+    let hasDraggedLocal = false
+    let isDraggingLocal = false
+    
+    const rect = bubbleRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    const handleTempMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - startX
+      const deltaY = e.clientY - startY
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+      
+      // Start dragging only after threshold
+      if (!isDraggingLocal && distance > dragThreshold) {
+        isDraggingLocal = true
+        hasDraggedLocal = true
+        setIsDragging(true)
+        setHasDragged(true)
+        document.body.style.userSelect = 'none'
       }
       
-      try { 
-        writeAndScroll(data)
-      } catch (e) { 
-        console.warn('Write message failed:', e)
-      }
-    }
-
-    // Improved write and scroll function
-    const writeAndScroll = (data: string) => {
-      try {
-        if (termRef.current) {
-          termRef.current.write(data)
-          // Use requestAnimationFrame to ensure write is processed before scrolling
-          requestAnimationFrame(() => {
-            scrollToBottom()
-          })
+      if (isDraggingLocal) {
+        e.preventDefault()
+        
+        const newPosition = {
+          x: position.x + deltaX,
+          y: position.y + deltaY
         }
-      } catch (e) {
-        console.warn('Write and scroll failed:', e)
+        
+        setPosition(constrainPosition(newPosition))
       }
-    }
-
-    ws.onclose = () => { 
-      try { 
-        if (hadOpenRef.current && termRef.current) {
-          termRef.current.writeln('\r\n\x1b[31mDisconnected\x1b[0m')
-          scrollToBottom()
-        }
-      } catch (e) { 
-        console.warn('WebSocket close handling failed:', e)
-      } 
     }
     
-    ws.onerror = (e) => { 
-      try { 
-        if (hadOpenRef.current && termRef.current) {
-          termRef.current.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
-          scrollToBottom()
-        }
-      } catch (e) { 
-        console.warn('WebSocket error handling failed:', e)
-      } 
-    }
-
-    // Wire terminal input to websocket
-    try {
-      termRef.current?.onData((data: string) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(data)
-        }
-      })
-    } catch (e) {
-      console.warn('Terminal input wiring failed:', e)
-    }
-
-    // Global resize handler
-    const onResize = () => { 
-      try { 
-        if (fitRef.current && termRef.current) {
-          fitRef.current.fit()
-          // Notify backend of resize
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            const { cols, rows } = termRef.current
-            const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
-            ws.send(resizeMsg)
-          }
-        }
-      } catch (e) {
-        console.warn('Global resize failed:', e)
-      } 
-    }
-    window.addEventListener('resize', onResize)
-
-    return () => {
-      clearAllTimeouts()
-      try { wsRef.current?.close() } catch (e) {}
-      try { termRef.current?.dispose() } catch (e) {}
-      window.removeEventListener('resize', onResize)
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
+    const handleTempMouseUp = () => {
+      setIsDragging(false)
+      document.body.style.userSelect = ''
+      
+      // Reset drag flag after a delay to prevent accidental clicks
+      if (hasDraggedLocal) {
+        setTimeout(() => {
+          setHasDragged(false)
+        }, 150)
       }
-      try { resizeObsRef.current?.disconnect() } catch (e) {}
+      
+      // Remove temporary listeners immediately
+      document.removeEventListener('mousemove', handleTempMouseMove)
+      document.removeEventListener('mouseup', handleTempMouseUp)
     }
-  }, [wsUrl, token, addTimeout, scrollToBottom])
+    
+    // Add temporary listeners
+    document.addEventListener('mousemove', handleTempMouseMove, { passive: false })
+    document.addEventListener('mouseup', handleTempMouseUp, { passive: false })
+  }, [position, constrainPosition, dragThreshold])
 
-  // Re-fit when `open` toggles or reconnect requested
+  // Handle window resize
   useEffect(() => {
-    if (!open) return
-    
-    // Wait for popup animation then fit multiple times for reliability
-    const timeout1 = addTimeout(() => {
-      try { 
-        if (fitRef.current && termRef.current) {
-          fitRef.current.fit()
-          // Notify backend of resize
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            const { cols, rows } = termRef.current
-            const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
-            wsRef.current.send(resizeMsg)
-          }
-        }
-      } catch (e) {
-        console.warn('Open fit failed:', e)
-      }
-    }, 300)
-    
-    const timeout2 = addTimeout(() => {
-      try { 
-        if (fitRef.current && termRef.current) {
-          fitRef.current.fit()
-          scrollToBottom()
-        }
-      } catch (e) {
-        console.warn('Secondary open fit failed:', e)
-      }
-    }, 450)
-    
-    return () => {
-      clearTimeout(timeout1)
-      clearTimeout(timeout2)
+    const handleResize = () => {
+      setPosition(prev => constrainPosition(prev))
     }
-  }, [open, reconnectTick, addTimeout, scrollToBottom])
+    
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [constrainPosition])
+
+  // Calculate popup position
+  const getPopupPosition = useCallback(() => {
+    const popupWidth = 700  // Increased from 600px
+    const popupHeight = 450 // Increased from 400px
+    const bubbleSize = 56
+    const gap = 16
+    
+    let popupX = position.x
+    let popupY = position.y - popupHeight - gap
+    
+    // Adjust if popup would go off screen
+    if (popupX + popupWidth > window.innerWidth - 16) {
+      popupX = window.innerWidth - popupWidth - 16
+    }
+    if (popupX < 16) {
+      popupX = 16
+    }
+    
+    if (popupY < 16) {
+      popupY = position.y + bubbleSize + gap
+    }
+    
+    return { x: popupX, y: popupY }
+  }, [position])
+
+  const popupPosition = getPopupPosition()
+
+  // Compute opening transform so the popup appears to originate from the bubble
+  const getOpeningTransform = useCallback(() => {
+    try {
+      const bubbleRect = bubbleRef.current?.getBoundingClientRect()
+      if (!bubbleRect) return 'translateY(14px) scale(0.98)'
+
+      const popupX = popupPosition.x
+      const popupY = popupPosition.y
+
+      // center points
+      const bubbleCenterX = bubbleRect.left + bubbleRect.width / 2
+      const bubbleCenterY = bubbleRect.top + bubbleRect.height / 2
+
+      const offsetX = bubbleCenterX - (popupX + 350) // popup half-width approx
+      const offsetY = bubbleCenterY - (popupY + 24) // small vertical offset
+
+      return `translate(${offsetX}px, ${offsetY}px) scale(0.9)`
+    } catch (e) {
+      return 'translateY(14px) scale(0.98)'
+    }
+  }, [popupPosition])
 
   return (
-    <div 
-      ref={containerRef} 
-      className="xterm-container rounded-sm" 
-      style={{ 
-        width: '100%', 
-        height: '100%', 
-        minHeight: '250px',
-        padding: '8px',
-        boxSizing: 'border-box',
-        overflow: 'hidden' // Prevent container scrollbars, let xterm handle scrolling
-      }} 
-    />
+    <>
+      {/* Floating Shell Button */}
+      <div
+        ref={bubbleRef}
+        className={cn(
+          "fixed z-50 select-none",
+          isDragging ? "cursor-grabbing" : "cursor-grab"
+        )}
+        style={{
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          transition: isDragging ? 'none' : 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: isDragging ? 'scale(1.02) translateZ(0)' : 'scale(1) translateZ(0)',
+          willChange: isDragging ? 'transform, left, top' : 'auto',
+        }}
+        onMouseDown={handleMouseDown}
+      >
+        <Button
+          onClick={toggleShell}
+          size="icon"
+          className={cn(
+            "h-14 w-14 rounded-full shadow-lg transition-all duration-200",
+            "bg-primary hover:bg-primary/90 text-primary-foreground",
+            "border border-border/20 backdrop-blur-sm",
+            isDragging && "shadow-2xl ring-2 ring-primary/50 scale-105"
+          )}
+          aria-label="Toggle remote shell"
+        >
+          {isDragging ? <Move className="h-6 w-6" /> : <Terminal className="h-6 w-6" />}
+        </Button>
+      </div>
+
+      {/* Shell Popup */}
+      {isOpen && (
+        <div 
+          className={cn('fixed z-40', isOpening && 'swoosh-opening')}
+          style={{
+            // Use transform-only movement when dragging to avoid layout reflow
+            left: `${popupPosition.x}px`,
+            top: `${popupPosition.y}px`,
+            transition: isDragging ? 'none' : 'opacity 220ms ease-out, transform 220ms ease-out',
+            willChange: isDragging ? 'transform' : 'auto',
+            transform: isOpening ? getOpeningTransform() : undefined
+          }}
+        >
+          <Card className={cn(
+            "w-[700px] h-[450px] shadow-2xl border border-border/40",
+            // Avoid triggering reflow on child layout; only animate opacity/transform
+            "backdrop-blur-md bg-background/95 transition-opacity duration-300",
+            "animate-in slide-in-from-bottom-2 fade-in-0",
+            // hint to browser to optimize rendering of this element
+            isDragging ? 'will-change-transform' : ''
+          )}>
+            <div className="flex items-center justify-between p-3 border-b border-border/40">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium text-foreground">Remote Shell</span>
+                {isDragging && (
+                  <span className="text-xs text-muted-foreground animate-pulse">
+                    Dragging...
+                  </span>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-1 ">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleReconnect}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  title="Reconnect"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                </Button>
+                
+                <Separator orientation="vertical" className="h-4 mx-1" />
+                
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClose}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  title="Close"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+            
+            <CardContent className="p-0 h-[calc(100%-49px)]">
+              <div className="h-full w-full ">
+                {showShell && (
+                  <XTermShell 
+                    token={token}
+                    open={isOpen}
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </>
   )
 }
 
-export default XTermShell
+export default ShellBubble

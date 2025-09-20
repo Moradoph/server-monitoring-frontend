@@ -244,24 +244,24 @@ export default function App() {
           >
             <Menu className="h-5 w-5" />
           </Button>
+          
           <div className="ml-2 text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
             Server Monitor
           </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
+
           <Button
             variant="outline"
             size="sm"
-            className={`transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`}
+            className={`hidden md:flex transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`}
             onClick={() => setSidebarCollapsed(s => !s)}
             title="Toggle sidebar"
           >
-            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            {"<"}
           </Button>
-          
-          <Separator orientation="vertical" className="h-6" />
-          
+
+        </div>
+        
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"

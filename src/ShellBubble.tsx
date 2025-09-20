@@ -18,15 +18,16 @@ interface Position {
 const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [showShell, setShowShell] = useState(false)
-  const [position, setPosition] = useState<Position>({ x: 24, y: 24 }) // Default: bottom-6 right-6
+  const [position, setPosition] = useState<Position>({ x: window.innerWidth - 80, y: window.innerHeight - 80 }) // Start bottom-right
   const [isDragging, setIsDragging] = useState(false)
-  const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 })
+  const [dragStart, setDragStart] = useState<Position>({ x: 0, y: 0 })
+  const [initialPosition, setInitialPosition] = useState<Position>({ x: 0, y: 0 })
   
   const bubbleRef = useRef<HTMLDivElement>(null)
-  const popupRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
 
-  const toggleShell = () => {
+  const toggleShell = useCallback((e: React.MouseEvent) => {
+    if (isDragging) return // Don't toggle if we just finished dragging
+    
     if (!isOpen) {
       setIsOpen(true)
       setShowShell(true)
@@ -34,91 +35,76 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
       setIsOpen(false)
       setShowShell(false)
     }
-  }
+  }, [isDragging, isOpen])
 
-  const handleReconnect = () => {
-    // Force remount of XTermShell to trigger reconnection
+  const handleReconnect = useCallback(() => {
     setShowShell(false)
     setTimeout(() => setShowShell(true), 100)
-  }
+  }, [])
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsOpen(false)
     setShowShell(false)
-  }
+  }, [])
 
   const constrainPosition = useCallback((pos: Position): Position => {
-    if (!containerRef.current) return pos
-
-    const container = containerRef.current.getBoundingClientRect()
-    const bubbleSize = 56 // 14 * 4 (h-14 w-14)
-    const popupWidth = 600
-    const popupHeight = 400
-
-    const maxX = container.width - bubbleSize - 24 // 24px margin
-    const maxY = container.height - bubbleSize - 24
+    const bubbleSize = 56 // h-14 w-14 = 56px
+    const margin = 16
     
-    let constrainedX = Math.max(24, Math.min(pos.x, maxX))
-    let constrainedY = Math.max(24, Math.min(pos.y, maxY))
-
-    // If popup is open, ensure it doesn't go off-screen
-    if (isOpen) {
-      // Adjust for popup positioning
-      const popupRight = constrainedX + popupWidth
-      const popupBottom = constrainedY + popupHeight + 80 // bubble height + gap
-
-      if (popupRight > container.width - 24) {
-        constrainedX = container.width - popupWidth - 24
-      }
-      
-      if (popupBottom > container.height - 24) {
-        constrainedY = container.height - popupHeight - 80 - 24
-      }
+    const maxX = window.innerWidth - bubbleSize - margin
+    const maxY = window.innerHeight - bubbleSize - margin
+    
+    return {
+      x: Math.max(margin, Math.min(pos.x, maxX)),
+      y: Math.max(margin, Math.min(pos.y, maxY))
     }
-
-    return { x: constrainedX, y: constrainedY }
-  }, [isOpen])
+  }, [])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!bubbleRef.current) return
-    
     e.preventDefault()
     e.stopPropagation()
     
     setIsDragging(true)
+    setDragStart({ x: e.clientX, y: e.clientY })
+    setInitialPosition(position)
     
-    const rect = bubbleRef.current.getBoundingClientRect()
-    const containerRect = containerRef.current?.getBoundingClientRect()
-    
-    if (containerRect) {
-      const offsetX = e.clientX - rect.left
-      const offsetY = e.clientY - rect.top
-      setDragOffset({ x: offsetX, y: offsetY })
-    }
-  }, [])
+    // Prevent the button click from firing
+    document.body.style.userSelect = 'none'
+  }, [position])
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || !containerRef.current) return
+    if (!isDragging) return
     
     e.preventDefault()
     
-    const containerRect = containerRef.current.getBoundingClientRect()
-    const newX = e.clientX - containerRect.left - dragOffset.x
-    const newY = e.clientY - containerRect.top - dragOffset.y
+    const deltaX = e.clientX - dragStart.x
+    const deltaY = e.clientY - dragStart.y
     
-    const constrainedPos = constrainPosition({ x: newX, y: newY })
-    setPosition(constrainedPos)
-  }, [isDragging, dragOffset, constrainPosition])
+    const newPosition = {
+      x: initialPosition.x + deltaX,
+      y: initialPosition.y + deltaY
+    }
+    
+    setPosition(constrainPosition(newPosition))
+  }, [isDragging, dragStart, initialPosition, constrainPosition])
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    if (!isDragging) return
+    
     setIsDragging(false)
-  }, [])
+    document.body.style.userSelect = ''
+    
+    // Small delay to prevent click event from firing after drag
+    setTimeout(() => {
+      // This allows the click handler to work normally again
+    }, 100)
+  }, [isDragging])
 
-  // Setup drag event listeners
+  // Setup global mouse events
   useEffect(() => {
     if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
+      document.addEventListener('mousemove', handleMouseMove, { passive: false })
+      document.addEventListener('mouseup', handleMouseUp, { passive: false })
       
       return () => {
         document.removeEventListener('mousemove', handleMouseMove)
@@ -127,21 +113,42 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
-  // Get the main content container on mount
+  // Handle window resize
   useEffect(() => {
-    const mainElement = document.querySelector('main')
-    if (mainElement && containerRef.current !== mainElement) {
-      (containerRef as React.MutableRefObject<HTMLElement | null>).current = mainElement
+    const handleResize = () => {
+      setPosition(prev => constrainPosition(prev))
     }
-  }, [])
+    
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [constrainPosition])
 
-  // Recalculate position when popup opens/closes
-  useEffect(() => {
-    const constrainedPos = constrainPosition(position)
-    if (constrainedPos.x !== position.x || constrainedPos.y !== position.y) {
-      setPosition(constrainedPos)
+  // Calculate popup position
+  const getPopupPosition = useCallback(() => {
+    const popupWidth = 600
+    const popupHeight = 400
+    const bubbleSize = 56
+    const gap = 16
+    
+    let popupX = position.x
+    let popupY = position.y - popupHeight - gap
+    
+    // Adjust if popup would go off screen
+    if (popupX + popupWidth > window.innerWidth - 16) {
+      popupX = window.innerWidth - popupWidth - 16
     }
-  }, [isOpen, position, constrainPosition])
+    if (popupX < 16) {
+      popupX = 16
+    }
+    
+    if (popupY < 16) {
+      popupY = position.y + bubbleSize + gap
+    }
+    
+    return { x: popupX, y: popupY }
+  }, [position])
+
+  const popupPosition = getPopupPosition()
 
   return (
     <>
@@ -149,12 +156,14 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
       <div
         ref={bubbleRef}
         className={cn(
-          "fixed z-50 transition-all duration-200 ease-in-out",
-          isDragging ? "scale-110 cursor-grabbing" : "cursor-grab hover:scale-105"
+          "fixed z-50 select-none",
+          isDragging ? "cursor-grabbing" : "cursor-grab"
         )}
         style={{
-          right: `${position.x}px`,
-          bottom: `${position.y}px`,
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          transition: isDragging ? 'none' : 'all 0.2s ease-out',
+          transform: isDragging ? 'scale(1.05)' : 'scale(1)',
         }}
         onMouseDown={handleMouseDown}
       >
@@ -162,10 +171,10 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
           onClick={toggleShell}
           size="icon"
           className={cn(
-            "h-14 w-14 rounded-full shadow-lg transition-all duration-300",
+            "h-14 w-14 rounded-full shadow-lg transition-all duration-200",
             "bg-primary hover:bg-primary/90 text-primary-foreground",
             "border border-border/20 backdrop-blur-sm",
-            isDragging && "shadow-2xl ring-2 ring-primary/50"
+            isDragging && "shadow-2xl ring-2 ring-primary/50 scale-105"
           )}
           aria-label="Toggle remote shell"
         >
@@ -176,13 +185,11 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
       {/* Shell Popup */}
       {isOpen && (
         <div 
-          ref={popupRef}
-          className="fixed z-40 transition-all duration-300 ease-in-out"
+          className="fixed z-40"
           style={{
-            right: `${position.x}px`,
-            bottom: `${position.y + 80}px`, // 80px = bubble height + gap
-            transform: isOpen ? 'scale(1) translateY(0)' : 'scale(0.95) translateY(10px)',
-            opacity: isOpen ? 1 : 0,
+            left: `${popupPosition.x}px`,
+            top: `${popupPosition.y}px`,
+            transition: 'all 0.3s ease-out',
           }}
         >
           <Card className={cn(
@@ -194,9 +201,11 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
               <div className="flex items-center gap-2">
                 <Terminal className="h-4 w-4 text-primary" />
                 <span className="text-sm font-medium text-foreground">Remote Shell</span>
-                <span className="text-xs text-muted-foreground">
-                  {isDragging ? "Dragging..." : "Drag the button to move"}
-                </span>
+                {isDragging && (
+                  <span className="text-xs text-muted-foreground animate-pulse">
+                    Dragging...
+                  </span>
+                )}
               </div>
               
               <div className="flex items-center gap-1">

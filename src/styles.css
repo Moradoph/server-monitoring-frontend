@@ -318,6 +318,20 @@ html { scroll-behavior: smooth }
   box-sizing: border-box;
 }
 
+/* Make viewport scrollable and visible */
+.xterm-container .xterm-viewport {
+  overflow: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.xterm-container .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.xterm-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(100,100,100,0.2);
+  border-radius: 6px;
+}
+
 .shell-controls button:hover { 
   opacity: 0.9;
 }

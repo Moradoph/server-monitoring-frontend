@@ -45,27 +45,59 @@ const XTermShell: React.FC<XTermShellProps> = ({
     return timeout
   }, [])
 
+  // Improved scroll to bottom function
+  const scrollToBottom = useCallback(() => {
+    try {
+      if (termRef.current) {
+        const term = termRef.current as any
+        // Use multiple methods to ensure scrolling works
+        if (typeof term.scrollToBottom === 'function') {
+          term.scrollToBottom()
+        }
+        if (term.buffer && term.buffer.active) {
+          const buffer = term.buffer.active
+          if (buffer.baseY !== undefined && buffer.cursorY !== undefined) {
+            const targetLine = buffer.baseY + buffer.cursorY
+            if (typeof term.scrollToLine === 'function') {
+              term.scrollToLine(targetLine)
+            }
+          }
+        }
+        // Force scroll to end using viewport
+        if (term._core && term._core.viewport) {
+          term._core.viewport.scrollToBottom()
+        }
+      }
+    } catch (e) {
+      console.warn('Scroll to bottom failed:', e)
+    }
+  }, [])
+
   useEffect(() => {
-    // initialize only when container is available
+    // Initialize terminal only when container is available
     const init = () => {
       if (!containerRef.current) return false
       try {
         const term = new Terminal({ 
           cursorBlink: true, 
           convertEol: true,
-          cols: 90,      // Increased from 80 to better fit in 700px width
-          rows: 28,      // Increased from 24 to better fit in 450px height
-          scrollback: 1000,
+          // Let the fit addon determine optimal size
+          scrollback: 5000,
           fontFamily: 'Monaco, Menlo, "DejaVu Sans Mono", "Lucida Console", monospace',
           fontSize: 14,
           lineHeight: 1.2,
           letterSpacing: 0,
           allowTransparency: true,
+          disableStdin: false,
+          // Enable proper text wrapping
+          windowsMode: false,
+          macOptionIsMeta: true,
+          rightClickSelectsWord: false,
           theme: {
             background: 'rgba(0, 0, 0, 0)',
             foreground: '#2ee400ff',
             cursor: '#2ee400ff',
-            selectionBackground: 'rgba(112, 115, 255, 1)',
+            selectionBackground: 'rgba(112, 115, 255, 0.3)',
             black: '#000000ff',
             brightBlack: '#808080',
             red: '#ff6c6b',
@@ -84,24 +116,27 @@ const XTermShell: React.FC<XTermShellProps> = ({
             brightWhite: '#ffffff'
           }
         })
+        
         const fit = new FitAddon()
         term.loadAddon(fit)
         term.open(containerRef.current)
         
-        // Ensure proper fitting after container is rendered
+        // Improved fitting with proper timing
+        const doFit = () => {
+          try {
+            if (containerRef.current && fitRef.current) {
+              fitRef.current.fit()
+            }
+          } catch (e) {
+            console.warn('Fit failed:', e)
+          }
+        }
+        
+        // Initial fit with proper timing
         rafRef.current = requestAnimationFrame(() => {
-          try { 
-            fit.fit()
-            // Give a moment for the DOM to update after fit
-            addTimeout(() => {
-              try {
-                fit.fit()
-                // Ensure terminal takes up the full available space
-                const { cols, rows } = term
-                term.resize(Math.max(cols, 50), Math.max(rows, 15))
-              } catch (e) { /* ignore resize errors */ }
-            }, 50) // Reduced from 100ms
-          } catch (e) { /* ignore fit errors */ }
+          doFit()
+          // Secondary fit to ensure proper sizing
+          addTimeout(doFit, 100)
         })
         
         termRef.current = term
@@ -114,33 +149,43 @@ const XTermShell: React.FC<XTermShellProps> = ({
     }
 
     if (!init()) {
-      // try once more on next animation frame
+      // Try once more on next animation frame
       const id = requestAnimationFrame(() => init())
-      ;(window as any).__xterm_init_raf = id
+      rafRef.current = id
     }
 
-    // ensure fit is called when the container resizes or when opened/fullscreen changes
+    // Improved resize handling
     const setupResize = () => {
       try {
         if (containerRef.current && fitRef.current) {
           if (resizeObsRef.current) resizeObsRef.current.disconnect()
+          
+          let resizeTimeout: number | null = null
           const ro = new ResizeObserver(() => {
-            // Debounce the resize to avoid excessive calls
-            addTimeout(() => {
-              try { 
+            // Debounce resize events
+            if (resizeTimeout) clearTimeout(resizeTimeout)
+            resizeTimeout = setTimeout(() => {
+              try {
                 if (fitRef.current && termRef.current) {
                   fitRef.current.fit()
-                  // Ensure minimum reasonable size after resize
-                  const { cols, rows } = termRef.current
-                  termRef.current.resize(Math.max(cols, 50), Math.max(rows, 15))
+                  // Notify backend of resize
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    const { cols, rows } = termRef.current
+                    const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
+                    wsRef.current.send(resizeMsg)
+                  }
                 }
-              } catch (e) { }
-            }, 30) // Reduced from 50ms for smoother experience
+              } catch (e) {
+                console.warn('Resize fit failed:', e)
+              }
+            }, 50) as number
           })
           ro.observe(containerRef.current)
           resizeObsRef.current = ro
         }
-      } catch (e) { }
+      } catch (e) {
+        console.warn('Setup resize failed:', e)
+      }
     }
     setupResize()
 
@@ -150,30 +195,117 @@ const XTermShell: React.FC<XTermShellProps> = ({
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
+    const writeBanner = () => {
+      try {
+        const host = location.hostname || 'host'
+        const time = new Date().toLocaleString()
+        const banner = [
+          `\x1b[38;5;39m  ______            ______ _ __    __       \x1b[0m`,
+          `\x1b[38;5;45m |  ____/ X::XX::X |  ___/| |\\ \\""/ /   \x1b[0m`,
+          `\x1b[38;5;81m | |__(_)_ __ ___  | |__  | | \\ \\/ /  \x1b[0m`,
+          `\x1b[38;5;159m|  __|| | / // _ \\|  __|  | |  \\  / \ \x1b[0m`,
+          `\x1b[38;5;123m | |  | |  /|  __/ | | :: | | |_  _| \x1b[0m`,
+          `\x1b[38;5;201m |_|  |_|_|  \\___| |_| :: |_|  |__| \x1b[0m`,
+          '',
+          `\x1b[33mConnected to:\x1b[0m \x1b[36m${host}\x1b[0m`,
+          `\x1b[33mTime:\x1b[0m \x1b[36m${time}\x1b[0m`,
+          ''
+        ].join('\r\n')
+        writeAndScroll(banner + '\r\n')
+      } catch (e) {
+        try { writeAndScroll('\x1b[32mConnected to host shell\x1b[0m\r\n') } catch (_) {}
+      }
+    }
+
     ws.onopen = () => {
       hadOpenRef.current = true
-      try { termRef.current?.writeln('\x1b[32mConnected to host shell\x1b[0m') } catch (e) { }
+      writeBanner()
     }
 
     ws.onmessage = (ev) => {
-      // receive text output and write to terminal
-      const data = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data)
-      try { termRef.current?.write(data) } catch (e) { }
+      // Receive text output and write to terminal
+      let data: string
+      if (typeof ev.data === 'string') {
+        data = ev.data
+      } else if (ev.data instanceof ArrayBuffer) {
+        data = new TextDecoder().decode(ev.data)
+      } else {
+        console.warn('Unexpected message type:', typeof ev.data)
+        return
+      }
+      
+      try { 
+        writeAndScroll(data)
+      } catch (e) { 
+        console.warn('Write message failed:', e)
+      }
     }
 
-  ws.onclose = () => { try { if (hadOpenRef.current) termRef.current?.writeln('\r\n\x1b[31mDisconnected\x1b[0m') } catch (e) { } }
-  ws.onerror = (e) => { try { if (hadOpenRef.current) termRef.current?.writeln('\r\n\x1b[31mWebSocket error\x1b[0m') } catch (e) { } }
+    // Improved write and scroll function
+    const writeAndScroll = (data: string) => {
+      try {
+        if (termRef.current) {
+          termRef.current.write(data)
+          // Use requestAnimationFrame to ensure write is processed before scrolling
+          requestAnimationFrame(() => {
+            scrollToBottom()
+          })
+        }
+      } catch (e) {
+        console.warn('Write and scroll failed:', e)
+      }
+    }
 
-    // wire terminal input to websocket
-    // wire terminal input to websocket
+    ws.onclose = () => { 
+      try { 
+        if (hadOpenRef.current && termRef.current) {
+          termRef.current.writeln('\r\n\x1b[31mDisconnected\x1b[0m')
+          scrollToBottom()
+        }
+      } catch (e) { 
+        console.warn('WebSocket close handling failed:', e)
+      } 
+    }
+    
+    ws.onerror = (e) => { 
+      try { 
+        if (hadOpenRef.current && termRef.current) {
+          termRef.current.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
+          scrollToBottom()
+        }
+      } catch (e) { 
+        console.warn('WebSocket error handling failed:', e)
+      } 
+    }
+
+    // Wire terminal input to websocket
     try {
       termRef.current?.onData((data: string) => {
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(data)
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(data)
+        }
       })
-    } catch (e) { }
+    } catch (e) {
+      console.warn('Terminal input wiring failed:', e)
+    }
 
-  const onResize = () => { try { fitRef.current?.fit() } catch (e) { } }
-  window.addEventListener('resize', onResize)
+    // Global resize handler
+    const onResize = () => { 
+      try { 
+        if (fitRef.current && termRef.current) {
+          fitRef.current.fit()
+          // Notify backend of resize
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            const { cols, rows } = termRef.current
+            const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
+            ws.send(resizeMsg)
+          }
+        }
+      } catch (e) {
+        console.warn('Global resize failed:', e)
+      } 
+    }
+    window.addEventListener('resize', onResize)
 
     return () => {
       clearAllTimeouts()
@@ -184,35 +316,47 @@ const XTermShell: React.FC<XTermShellProps> = ({
         cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
-      try { resizeObsRef.current?.disconnect() } catch (e) { }
+      try { resizeObsRef.current?.disconnect() } catch (e) {}
     }
-  }, [wsUrl, token])
+  }, [wsUrl, token, addTimeout, scrollToBottom])
 
-  // re-fit when `open`, `fullscreen` toggles or reconnect requested
+  // Re-fit when `open` toggles or reconnect requested
   useEffect(() => {
     if (!open) return
     
-    // wait for popup animation (~300ms) then fit multiple times for reliability
+    // Wait for popup animation then fit multiple times for reliability
     const timeout1 = addTimeout(() => {
-      try { fitRef.current?.fit() } catch (e) { }
-    }, 300) // Reduced from 350ms
+      try { 
+        if (fitRef.current && termRef.current) {
+          fitRef.current.fit()
+          // Notify backend of resize
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            const { cols, rows } = termRef.current
+            const resizeMsg = JSON.stringify({ type: 'resize', cols, rows })
+            wsRef.current.send(resizeMsg)
+          }
+        }
+      } catch (e) {
+        console.warn('Open fit failed:', e)
+      }
+    }, 300)
     
     const timeout2 = addTimeout(() => {
       try { 
         if (fitRef.current && termRef.current) {
           fitRef.current.fit()
-          // Final resize to ensure proper sizing
-          const { cols, rows } = termRef.current
-          termRef.current.resize(Math.max(cols, 50), Math.max(rows, 15))
+          scrollToBottom()
         }
-      } catch (e) { }
-    }, 450) // Reduced from 500ms
+      } catch (e) {
+        console.warn('Secondary open fit failed:', e)
+      }
+    }, 450)
     
     return () => {
       clearTimeout(timeout1)
       clearTimeout(timeout2)
     }
-  }, [open, reconnectTick, addTimeout])
+  }, [open, reconnectTick, addTimeout, scrollToBottom])
 
   return (
     <div 
@@ -223,7 +367,8 @@ const XTermShell: React.FC<XTermShellProps> = ({
         height: '100%', 
         minHeight: '250px',
         padding: '8px',
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        overflow: 'hidden' // Prevent container scrollbars, let xterm handle scrolling
       }} 
     />
   )

@@ -8,13 +8,15 @@ interface XTermShellProps {
   token?: string
   open?: boolean
   reconnectTick?: number
+  onOpen?: () => void
 }
 
 const XTermShell: React.FC<XTermShellProps> = ({ 
   wsUrl, 
   token, 
   open = true, 
-  reconnectTick 
+  reconnectTick,
+  onOpen
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -220,6 +222,7 @@ const XTermShell: React.FC<XTermShellProps> = ({
     ws.onopen = () => {
       hadOpenRef.current = true
       writeBanner()
+      try { onOpen?.() } catch (_) {}
     }
 
     ws.onmessage = (ev) => {

@@ -125,14 +125,14 @@ export default function App() {
     const url = ((import.meta as any).env?.VITE_WS_URL || '') || `ws://${location.hostname}:8000/ws`
     const ws = new WebSocket(url)
     let isConnected = false
-    
+
     ws.onopen = () => {
       isConnected = true
     }
-    
+
     ws.onmessage = (ev) => {
       if (!isConnected) return // Ignore messages if not properly connected
-      
+
       try {
         const data = JSON.parse(ev.data)
         if (!pausedRef.current) {
@@ -167,15 +167,15 @@ export default function App() {
         // ignore parsing errors
       }
     }
-    
+
     ws.onclose = () => {
       isConnected = false
     }
-    
+
     ws.onerror = () => {
       isConnected = false
     }
-    
+
     return () => {
       isConnected = false
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
@@ -266,7 +266,7 @@ export default function App() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          
+
           <div className="ml-2 text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
             Server Monitor
           </div>
@@ -282,7 +282,7 @@ export default function App() {
           </Button>
 
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -292,7 +292,7 @@ export default function App() {
           >
             {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
-          
+
           <Button
             variant={paused ? "destructive" : "default"}
             size="sm"
@@ -315,9 +315,9 @@ export default function App() {
               <><Pause className="h-4 w-4 mr-1" />Pause</>
             )}
           </Button>
-          
+
           <Separator orientation="vertical" className="h-6" />
-          
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-2">
@@ -347,14 +347,14 @@ export default function App() {
 
   function Sidebar() {
     const nav = [
-      { key: 'overview', label: 'CPU', icon: Cpu },
+      { key: 'cpu', label: 'CPU', icon: Cpu },
       { key: 'disks', label: 'Memory & Storage', icon: HardDrive },
       { key: 'network', label: 'Network', icon: Network },
       { key: 'processes', label: 'Processes', icon: Activity },
     ]
-    
+
     const curHash = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
-    
+
     const scrollToSection = (key: string) => (e: React.MouseEvent) => {
       e.preventDefault()
       const el = document.getElementById(key)
@@ -378,8 +378,8 @@ export default function App() {
           sidebarOpen ? "block" : "hidden md:block",
           sidebarCollapsed ? "sidebar-collapsed w-0 opacity-0 pointer-events-none" : "sidebar-expanded w-64 opacity-100"
         )}
-        style={{ 
-          top: `${headerHeight}px`, 
+        style={{
+          top: `${headerHeight}px`,
           height: `calc(100vh - ${headerHeight}px)`,
           transform: sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)'
         }}
@@ -413,7 +413,7 @@ export default function App() {
             )
           })}
         </nav>
-        
+
         {!sidebarCollapsed && (
           <div className="mt-8 p-3 rounded-lg bg-muted/20 border border-border/40">
             <div className="text-xs font-medium text-muted-foreground mb-2">System Status</div>
@@ -455,7 +455,7 @@ export default function App() {
       // Animation function
       const animate = (progress: number = 1) => {
         ctx.clearRect(0, 0, w, h)
-        
+
         // Add subtle grid background
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'
         ctx.lineWidth = 1
@@ -466,13 +466,13 @@ export default function App() {
           ctx.lineTo(w, y)
           ctx.stroke()
         }
-        
+
         if (!data || data.length === 0) return
 
         // convert samples to Mbps for consistent units
         const conv = data.map(d => ({ r: (d.r * 8) / 1e6, s: (d.s * 8) / 1e6 }))
         const prevConv = previousDataRef.current.length > 0 ? previousDataRef.current.map(d => ({ r: (d.r * 8) / 1e6, s: (d.s * 8) / 1e6 })) : conv
-        
+
         // compute a stable max across buffer (avoid tiny values)
         let maxVal = 1
         for (const d of conv) if (d) maxVal = Math.max(maxVal, d.r, d.s)
@@ -485,11 +485,11 @@ export default function App() {
           const x = i * barW
           const sample = conv[i] || { r: 0, s: 0 }
           const prevSample = prevConv[i] || sample
-          
+
           // Interpolate between previous and current values for smooth animation
           const currentR = prevSample.r + (sample.r - prevSample.r) * progress
           const currentS = prevSample.s + (sample.s - prevSample.s) * progress
-          
+
           const rNorm = Math.min(1, currentR / maxVal)
           const sNorm = Math.min(1, currentS / maxVal)
           const rH = rNorm * (h / 2)
@@ -524,7 +524,7 @@ export default function App() {
           ctx.fillStyle = bottomGradient
           ctx.fillRect(x + barW * 0.1, centerY, Math.max(1, barW * 0.6), sH)
         }
-        
+
         // Reset shadow
         ctx.shadowBlur = 0
 
@@ -547,9 +547,9 @@ export default function App() {
           if (!startTime) startTime = timestamp
           const elapsed = timestamp - startTime
           const progress = Math.min(elapsed / duration, 1)
-          
+
           animate(progress)
-          
+
           if (progress < 1) {
             animationRef.current = requestAnimationFrame(animateFrame)
           } else {
@@ -583,32 +583,32 @@ export default function App() {
         const rect = cvs.getBoundingClientRect()
         const x = e.clientX - rect.left
         const y = e.clientY - rect.top
-        
+
         // if outside bounds, clear hover
         if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
           setNetHover(null)
           return
         }
-        
+
         const len = data.length || 1
         const idx = Math.floor((x / rect.width) * len)
         const clamped = Math.max(0, Math.min(len - 1, idx))
         const sample = data[clamped] || { r: 0, s: 0 }
-        
+
         // Enhanced tooltip positioning - avoid edges
         const wrapRect = wrap.getBoundingClientRect()
         let tooltipX = rect.left - wrapRect.left + x + 12
         let tooltipY = rect.top - wrapRect.top + y - 60
-        
+
         // Adjust if tooltip would go off screen
         if (tooltipX > wrapRect.width - 200) tooltipX = x - 180
         if (tooltipY < 0) tooltipY = y + 12
-        
-        setNetHover({ 
-          x: tooltipX, 
-          y: tooltipY, 
-          idx: clamped, 
-          r: (sample.r * 8) / 1e6, 
+
+        setNetHover({
+          x: tooltipX,
+          y: tooltipY,
+          idx: clamped,
+          r: (sample.r * 8) / 1e6,
           s: (sample.s * 8) / 1e6,
           timestamp: Date.now() - (len - 1 - clamped) * 1000 // Approximate timestamp
         })
@@ -639,23 +639,23 @@ export default function App() {
 
     return (
       <div className="relative" ref={wrapRef}>
-        <canvas 
-          ref={ref} 
+        <canvas
+          ref={ref}
           className={cn(
             "w-full h-20 rounded-md transition-all duration-200",
             isAnimating && "opacity-90"
           )}
         />
         {netHover && (
-          <div 
-            style={{ 
-              position: 'absolute', 
-              left: netHover.x, 
-              top: netHover.y, 
+          <div
+            style={{
+              position: 'absolute',
+              left: netHover.x,
+              top: netHover.y,
               zIndex: 60,
               transform: 'scale(1)',
               opacity: 1,
-            }} 
+            }}
             className={cn(
               "pointer-events-none backdrop-blur-md rounded-lg shadow-xl border transition-all duration-200 ease-out animate-in fade-in-0 zoom-in-95",
               "bg-background/95 border-border/40 p-3 text-sm"
@@ -701,10 +701,10 @@ export default function App() {
           "flex-1 p-6 transition-all duration-300 ease-in-out"
         )}>
           <div className={cn(
-            "max-w-6xl mx-auto transition-all duration-300 ease-in-out"
+            "max-w-full mx-auto transition-all duration-300 ease-in-out"
           )}>
             <ShellBubble token={'a-strong-secret'} />
-            <div id="overview" className="space-y-4">
+            <div className="space-y-4">
               <section id="cpu" className="card border dark:border-gray-800">
                 <h1 className="text-lg font-semibold mb-2">CPU</h1>
                 <div className="flex items-center">
@@ -838,79 +838,79 @@ export default function App() {
                   </div>
                 </div>
               </section>
-            </div>
-
-            <section id="processes" className="mt-6">
-              <div className="overflow-auto card border dark:border-gray-800">
-                <h2 className="text-lg font-semibold mb-2">Processes</h2>
-                <div className="mb-2 flex items-center gap-2">
-                  <input value={filter} onChange={e => { setFilter(e.target.value); setProcPage(0) }} className="rounded px-2 py-1 text-sm border bg-white text-gray-900 placeholder-gray-500 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 border-gray-300 dark:border-gray-700" placeholder="Filter by name, cmd or pid" />
-                  <div className="text-xs text-gray dark:text-gray-400">Showing {Math.min(filteredProcs.length, processLimit)} / {(metrics.processes || []).length}</div>
-                </div>
-                <table className="w-full text-sm table-zebra table-fixed">
-                  <colgroup>
-                    <col style={{ width: '6%' }} />
-                    <col style={{ width: '16%' }} />
-                    <col style={{ width: '10%' }} />
-                    <col style={{ width: '10%' }} />
-                    <col style={{ width: '12%' }} />
-                    <col style={{ width: '10%' }} />
-                    <col style={{ width: '36%' }} />
-                  </colgroup>
-                  <thead className="bg-gray-100 dark:bg-gray-800 text-left">
-                    <tr>
-                      <th className="px-3 py-2 whitespace-nowrap">PID</th>
-                      <th className="px-3 py-2 whitespace-nowrap">Name</th>
-                      <th className="px-3 py-2 whitespace-nowrap">CPU %</th>
-                      <th className="px-3 py-2 whitespace-nowrap">MEM %</th>
-                      <th className="px-3 py-2 whitespace-nowrap">RSS</th>
-                      <th className="px-3 py-2 whitespace-nowrap">User</th>
-                      <th className="px-3 py-2 whitespace-nowrap">Cmd</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedProcs.map((p: any) => (
-                      <tr key={p.pid} className="border-t dark:border-t-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onClick={() => setSelectedProc(p)}>
-                        <td className="px-3 py-1 align-top whitespace-nowrap text-xs">{p.pid}</td>
-                        <td className="px-3 py-1 align-top whitespace-nowrap overflow-hidden truncate" title={p.name}>{p.name}</td>
-                        <td className="px-3 py-1 align-top whitespace-nowrap">{p.cpu_percent?.toFixed?.(1) ?? p.cpu_percent}</td>
-                        <td className="px-3 py-1 align-top whitespace-nowrap">{p.mem_percent?.toFixed?.(1) ?? p.mem_percent}</td>
-                        <td className="px-3 py-1 align-top whitespace-nowrap text-xs">{p.rss}</td>
-                        <td className="px-3 py-1 align-top whitespace-nowrap overflow-hidden truncate" title={p.user}>{p.user}</td>
-                        <td className="px-3 py-1 align-top whitespace-nowrap overflow-hidden truncate" title={p.cmd}>{p.cmd}</td>
+              <section id="processes" className="mt-6">
+                <div className="overflow-auto card border dark:border-gray-800">
+                  <h2 className="text-lg font-semibold mb-2">Processes</h2>
+                  <div className="mb-2 flex items-center gap-2">
+                    <input value={filter} onChange={e => { setFilter(e.target.value); setProcPage(0) }} className="rounded px-2 py-1 text-sm border bg-white text-gray-900 placeholder-gray-500 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-400 border-gray-300 dark:border-gray-700" placeholder="Filter by name, cmd or pid" />
+                    <div className="text-xs text-gray dark:text-gray-400">Showing {Math.min(filteredProcs.length, processLimit)} / {(metrics.processes || []).length}</div>
+                  </div>
+                  <table className="w-full text-sm table-zebra table-fixed">
+                    <colgroup>
+                      <col style={{ width: '6%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '10%' }} />
+                      <col style={{ width: '10%' }} />
+                      <col style={{ width: '12%' }} />
+                      <col style={{ width: '10%' }} />
+                      <col style={{ width: '36%' }} />
+                    </colgroup>
+                    <thead className="bg-gray-100 dark:bg-gray-800 text-left">
+                      <tr>
+                        <th className="px-3 py-2 whitespace-nowrap">PID</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Name</th>
+                        <th className="px-3 py-2 whitespace-nowrap">CPU %</th>
+                        <th className="px-3 py-2 whitespace-nowrap">MEM %</th>
+                        <th className="px-3 py-2 whitespace-nowrap">RSS</th>
+                        <th className="px-3 py-2 whitespace-nowrap">User</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Cmd</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="mt-2 flex items-center justify-between">
-                <div className="text-xs text-gray-600 dark:text-gray-300">Showing {displayedProcs.length} of {totalProcs} (filtered {filteredProcs.length})</div>
-                <div className="flex items-center gap-2">
-                  <button className="px-2 py-1 border dark:border-gray-800 rounded text-sm" onClick={() => setProcPage(p => Math.max(0, p - 1))} disabled={procPage === 0}>Prev</button>
-                  <div className="text-xs text-gray-600 dark:text-gray-300">Page {procPage + 1} / {totalPages}</div>
-                  <button className="px-2 py-1 border dark:border-gray-800 rounded text-sm" onClick={() => setProcPage(p => Math.min(totalPages - 1, p + 1))} disabled={procPage >= totalPages - 1}>Next</button>
+                    </thead>
+                    <tbody>
+                      {displayedProcs.map((p: any) => (
+                        <tr key={p.pid} className="border-t dark:border-t-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onClick={() => setSelectedProc(p)}>
+                          <td className="px-3 py-1 align-top whitespace-nowrap text-xs">{p.pid}</td>
+                          <td className="px-3 py-1 align-top whitespace-nowrap overflow-hidden truncate" title={p.name}>{p.name}</td>
+                          <td className="px-3 py-1 align-top whitespace-nowrap">{p.cpu_percent?.toFixed?.(1) ?? p.cpu_percent}</td>
+                          <td className="px-3 py-1 align-top whitespace-nowrap">{p.mem_percent?.toFixed?.(1) ?? p.mem_percent}</td>
+                          <td className="px-3 py-1 align-top whitespace-nowrap text-xs">{p.rss}</td>
+                          <td className="px-3 py-1 align-top whitespace-nowrap overflow-hidden truncate" title={p.user}>{p.user}</td>
+                          <td className="px-3 py-1 align-top whitespace-nowrap overflow-hidden truncate" title={p.cmd}>{p.cmd}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
 
-              {/* modal for process details */}
-              {selectedProc && (
-                <div className="fixed inset-0 z-40">
-                  <div className={`fixed inset-0 bg-black modal-overlay ${modalVisible ? 'show' : ''}`} onClick={() => setSelectedProc(null)} />
-                  <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
-                    <div className={`border dark:border-gray-800 bg-white dark:bg-gray-950 rounded shadow p-4 z-50 w-11/12 max-w-2xl pointer-events-auto modal-panel ${modalVisible ? 'show' : ''}`} style={{ maxHeight: '80vh', overflow: 'auto', color: 'var(--text)' }}>
-                      <div className="flex items-start justify-between">
-                        <h3 className="text-lg font-semibold">Process {selectedProc.pid} - {selectedProc.name}</h3>
-                        <button className="text-sm text-gray-500" onClick={() => setSelectedProc(null)}>Close</button>
-                      </div>
-                      <div className="mt-3 text-sm">
-                        <pre className="whitespace-pre-wrap break-words text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded">{JSON.stringify(selectedProc, null, 2)}</pre>
+                <div className="mt-2 flex items-center justify-between">
+                  <div className="text-xs text-gray-600 dark:text-gray-300">Showing {displayedProcs.length} of {totalProcs} (filtered {filteredProcs.length})</div>
+                  <div className="flex items-center gap-2">
+                    <button className="px-2 py-1 border dark:border-gray-800 rounded text-sm" onClick={() => setProcPage(p => Math.max(0, p - 1))} disabled={procPage === 0}>Prev</button>
+                    <div className="text-xs text-gray-600 dark:text-gray-300">Page {procPage + 1} / {totalPages}</div>
+                    <button className="px-2 py-1 border dark:border-gray-800 rounded text-sm" onClick={() => setProcPage(p => Math.min(totalPages - 1, p + 1))} disabled={procPage >= totalPages - 1}>Next</button>
+                  </div>
+                </div>
+
+                {/* modal for process details */}
+                {selectedProc && (
+                  <div className="fixed inset-0 z-40">
+                    <div className={`fixed inset-0 bg-black modal-overlay ${modalVisible ? 'show' : ''}`} onClick={() => setSelectedProc(null)} />
+                    <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+                      <div className={`border dark:border-gray-800 bg-white dark:bg-gray-950 rounded shadow p-4 z-50 w-11/12 max-w-2xl pointer-events-auto modal-panel ${modalVisible ? 'show' : ''}`} style={{ maxHeight: '80vh', overflow: 'auto', color: 'var(--text)' }}>
+                        <div className="flex items-start justify-between">
+                          <h3 className="text-lg font-semibold">Process {selectedProc.pid} - {selectedProc.name}</h3>
+                          <button className="text-sm text-gray-500" onClick={() => setSelectedProc(null)}>Close</button>
+                        </div>
+                        <div className="mt-3 text-sm">
+                          <pre className="whitespace-pre-wrap break-words text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded">{JSON.stringify(selectedProc, null, 2)}</pre>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </section>
+                )}
+              </section>
+            </div>
+
           </div>
         </main>
       </div>

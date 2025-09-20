@@ -24,6 +24,8 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
   const [hasDragged, setHasDragged] = useState(false)
   
   const bubbleRef = useRef<HTMLDivElement>(null)
+  const openTimeoutRef = useRef<number | null>(null)
+  const terminalOpenedRef = useRef(false)
   const dragThreshold = 5 // pixels to start drag
 
   const toggleShell = useCallback((e: React.MouseEvent) => {
@@ -34,6 +36,15 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
       setIsOpen(true)
       setShowShell(true)
       setIsOpening(true)
+      // Reset terminal opened flag and start 5s timeout
+      terminalOpenedRef.current = false
+      if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current)
+      openTimeoutRef.current = window.setTimeout(() => {
+        // If terminal hasn't opened, move bubble to bottom-right
+        if (!terminalOpenedRef.current) {
+          setPosition({ x: window.innerWidth - 80, y: window.innerHeight - 80 })
+        }
+      }, 5000)
       // Clear opening after animation time
       setTimeout(() => setIsOpening(false), 360)
     } else {
@@ -133,6 +144,16 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [constrainPosition])
+
+  // Cleanup open timeout when component unmounts or when shell is closed
+  useEffect(() => {
+    return () => {
+      if (openTimeoutRef.current) {
+        clearTimeout(openTimeoutRef.current)
+        openTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   // Calculate popup position
   const getPopupPosition = useCallback(() => {
@@ -279,6 +300,10 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
                   <XTermShell 
                     token={token}
                     open={isOpen}
+                    onOpen={() => {
+                      terminalOpenedRef.current = true
+                      if (openTimeoutRef.current) { clearTimeout(openTimeoutRef.current); openTimeoutRef.current = null }
+                    }}
                   />
                 )}
               </div>

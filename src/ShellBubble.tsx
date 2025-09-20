@@ -19,7 +19,7 @@ const ShellBubble: React.FC<ShellBubbleProps> = ({ token }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [showShell, setShowShell] = useState(false)
   const [isOpening, setIsOpening] = useState(false)
-  const [position, setPosition] = useState<Position>({ x: window.innerWidth - 80, y: window.innerHeight - 80 }) // Start bottom-right
+  const [position, setPosition] = useState<Position>({ x: window.innerWidth - 98, y:  75 }) // Start bottom-right
   const [isDragging, setIsDragging] = useState(false)
   const [hasDragged, setHasDragged] = useState(false)
   
